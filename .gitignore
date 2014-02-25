@@ -1,5 +1,4 @@
 .DS_Store
-.idea/
 *.iml
 *~
 *.swp
@@ -7,6 +6,9 @@ target
 *.class
 *.log
 
+*.class
+*.log
+.idea
 # sbt specific
 dist/*
 target/
