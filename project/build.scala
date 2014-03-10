@@ -27,6 +27,7 @@ object Build extends sbt.Build {
       libraryDependencies ++= Seq(
         "org.scala-lang" % "scala-library" % "2.10.3",
         "org.scala-lang" % "scala-actors" % "2.10.3",
+        "org.springframework.data" % "spring-data-redis" % "1.2.0.RELEASE",
         "io.netty" % "netty-common" % "4.0.15.Final",
         "io.netty" % "netty-buffer" % "4.0.15.Final",
         "io.netty" % "netty-handler" % "4.0.15.Final",
@@ -37,7 +38,8 @@ object Build extends sbt.Build {
         "org.slf4s" %% "slf4s-api" % "1.7.6",
         "ch.qos.logback" % "logback-classic" % "1.1.1",
         "com.typesafe" % "config" % "1.2.0",
-        "org.eclipse.paho" % "mqtt-client" % "0.4.0"
+        "org.eclipse.paho" % "mqtt-client" % "0.4.0" % "test",
+        "org.scalatest" % "scalatest_2.10" % "2.0" % "test"
       )
     )
     // To publish tar.gz archive to the repository, add the following line (since 0.3.6)

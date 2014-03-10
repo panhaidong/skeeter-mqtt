@@ -5,8 +5,11 @@ import scala.actors.Actor
 import io.netty.buffer.ByteBuf
 import org.slf4s.Logging
 import java.nio.ByteBuffer
+import org.zhutou.skeeter.ChannelActor.Stop
 
-
+object ChannelActor{
+  case object Stop
+}
 class ChannelActor(ctx: ChannelHandlerContext) extends Actor with Logging {
   var mClientId: String = _
   var mCleanSessionFlag: Boolean = _
@@ -25,32 +28,38 @@ class ChannelActor(ctx: ChannelHandlerContext) extends Actor with Logging {
           val message = decode(in)
           ProcessActor !(this, message)
         //write
-        case message: MQTTMessage =>
-          val buf = encode(message)
-          ctx.writeAndFlush(buf)
+        case message: MQTTMessage => writeAndFlush(message)
+        //stop
+        case Stop => disconnect
       }
     }
   }
 
   def decode(in: ByteBuf): MQTTMessage = {
-    log.debug("decode start...");
+    log.debug("decode start...")
     val message = MQTTUtils.decode(in)
-    log.debug("decode:" + message);
+    log.debug("decode:" + message)
     message
   }
 
-  def encode(msg: MQTTMessage): ByteBuf = {
-    log.debug("encode:" + msg);
-    MQTTUtils.encode(ctx, msg)
+  def writeAndFlush(msg: MQTTMessage) = {
+    log.debug("encode:" + msg)
+    ctx.writeAndFlush(MQTTUtils.encode(ctx, msg))
   }
 
   def disconnect = {
+    log.debug("disconnect:" + mClientId);
     if (this.mWillFlag) {
-      val header = new MessageHeader(MessageType.PUBLISH, false, mWillQosLevel, false, 0)
-      val message = new MQTTPublishMessage(header, mWillTopic, 1, ByteBuffer.wrap(mWillMessage.getBytes("UTF-8")))
+      val message = new MQTTPublishMessage(false, mWillQosLevel, mWillRetainFlag, mWillTopic, 1, mWillMessage.getBytes("UTF-8"))
       ProcessActor ! message
     }
-    Server.disconnect(ctx)
+    if(this.mCleanSessionFlag){
+      
+    }
+
+    Container.activeChannels.remove(mClientId)
+    ctx.close()
+    exit()
   }
 
   def fill(message: MQTTConnMessage) = {
@@ -62,8 +71,9 @@ class ChannelActor(ctx: ChannelHandlerContext) extends Actor with Logging {
     mKeepAliveTimer = message.mKeepAliveTimer
     mWillTopic = message.mWillTopic
     mWillMessage = message.mWillMessage
+    ctx.attr(Server.ClientId).set(this)
+    Container.activeChannels.getOrElseUpdate(message.mClientId, this)
   }
 }
-
 
 

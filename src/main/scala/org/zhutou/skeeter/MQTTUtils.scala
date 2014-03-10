@@ -73,7 +73,7 @@ object MQTTUtils extends Logging {
   }
 
   private def decodeMessageHeader(in: ByteBuf): MessageHeader = {
-    if (in.readableBytes < 2) {
+    if (!checkHeaderAvailability(in)) {
       return null
     }
     val b1 = in.readByte()
@@ -87,7 +87,7 @@ object MQTTUtils extends Logging {
 
 
   def decode(in: ByteBuf): MQTTMessage = {
-    if (in.readableBytes() < 4) {
+    if (!checkHeaderAvailability(in)) {
       log.debug("readableBytes=" + in.readableBytes())
       return null
     }
@@ -113,38 +113,38 @@ object MQTTUtils extends Logging {
         val mUserName = if (mUserNameFlag) MQTTUtils.readString(bytes) else ""
         val mPassword = if (mPasswordFlag) MQTTUtils.readString(bytes) else ""
 
-        return new MQTTConnMessage(header, mProtocolName, mProtocolVersion, mCleanSessionFlag, mWillFlag,
+        return new MQTTConnMessage(mProtocolName, mProtocolVersion, mCleanSessionFlag, mWillFlag,
           mWillQosLevel, mWillRetainFlag, mPasswordFlag, mUserNameFlag, mKeepAliveTimer, mClientId, mWillTopic,
           mWillMessage, mUserName, mPassword)
 
       case MessageType.CONNACK =>
         bytes.skipBytes(1)
         val mReturnCode = bytes.readByte()
-        return new MQTTConnAckMessage(header, mReturnCode)
+        return new MQTTConnAckMessage(mReturnCode)
 
       case MessageType.PUBLISH =>
         val mTopicName = MQTTUtils.readString(bytes)
         val mMessageId = if (header.mQoSLevel == MessageQoSLevel.AT_LEAST_ONCE
           || header.mQoSLevel == MessageQoSLevel.EXACTLY_ONCE) MQTTUtils.readInt(bytes)
         else 0
-        val mPayload = bytes.nioBuffer(bytes.readerIndex(), bytes.readableBytes())
-        return new MQTTPublishMessage(header, mTopicName, mMessageId, mPayload)
+        val mPayload = bytes.readBytes(bytes.readableBytes())
+        return new MQTTPublishMessage(header.mDupFlag, header.mQoSLevel, header.mRetainFlag, mTopicName, mMessageId, mPayload.array)
 
       case MessageType.PUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubAckMessage(header, mMessageId)
+        return new MQTTPubAckMessage(mMessageId)
 
       case MessageType.PUBREC =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubRecMessage(header, mMessageId)
+        return new MQTTPubRecMessage(mMessageId)
 
       case MessageType.PUBREL =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubRelMessage(header, mMessageId)
+        return new MQTTPubRelMessage(mMessageId)
 
       case MessageType.PUBCOMP =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubCompMessage(header, mMessageId)
+        return new MQTTPubCompMessage(mMessageId)
 
       case MessageType.SUBSCRIBE =>
         val mMessageId = MQTTUtils.readInt(bytes)
@@ -156,7 +156,7 @@ object MQTTUtils extends Logging {
           subscriptions = (topicName, qoSLevel) :: subscriptions
         }
         val mSubscriptions = subscriptions.reverse
-        return new MQTTSubscribeMessage(header, mMessageId, mSubscriptions)
+        return new MQTTSubscribeMessage(header.mDupFlag, mMessageId, mSubscriptions)
 
       case MessageType.SUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
@@ -168,7 +168,7 @@ object MQTTUtils extends Logging {
         }
         mQosLevels = mQosLevels.reverse
 
-        return new MQTTSubAckMessage(header, mMessageId, mQosLevels)
+        return new MQTTSubAckMessage(mMessageId, mQosLevels)
 
       case MessageType.UNSUBSCRIBE =>
         val mMessageId = MQTTUtils.readInt(bytes)
@@ -180,20 +180,20 @@ object MQTTUtils extends Logging {
         }
         mTopicNames = mTopicNames.reverse
 
-        return new MQTTUnSubscribeMessage(header, mMessageId, mTopicNames)
+        return new MQTTUnSubscribeMessage(header.mDupFlag, mMessageId, mTopicNames)
 
       case MessageType.UNSUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTUnSubAckMessage(header, mMessageId)
+        return new MQTTUnSubAckMessage(mMessageId)
 
       case MessageType.PINGREQ =>
-        return new MQTTPingReqMessage(header)
+        return new MQTTPingReqMessage
 
       case MessageType.PINGRESP =>
-        return new MQTTPingRespMessage(header)
+        return new MQTTPingRespMessage
 
       case MessageType.DISCONNECT =>
-        return new MQTTDisconnectMessage(header)
+        return new MQTTDisconnectMessage
 
       case _ =>
         log.error("Wrong message")
@@ -230,8 +230,11 @@ object MQTTUtils extends Logging {
         MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
 
       case m: MQTTPubRecMessage =>
+        MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
       case m: MQTTPubRelMessage =>
+        MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
       case m: MQTTPubCompMessage =>
+        MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
       case m: MQTTSubscribeMessage =>
         MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
         for ((topicName, qoSLevel) <- m.mSubscriptions) {
@@ -260,5 +263,20 @@ object MQTTUtils extends Logging {
     buff.writeBytes(MQTTUtils.encodeRemainingLength(variableHeaderSize))
     buff.writeBytes(variableHeaderBuff)
     return buff
+  }
+
+  private def checkHeaderAvailability(in: ByteBuf): Boolean = {
+    if (in.readableBytes < 1) {
+      return false
+    }
+    in.skipBytes(1)
+    val remainingLength: Int = decodeRemainingLength(in)
+    in.resetReaderIndex
+
+    if (remainingLength == -1 || in.readableBytes < remainingLength) {
+      return false
+    } else {
+      return true
+    }
   }
 }

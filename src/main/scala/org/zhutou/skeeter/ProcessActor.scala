@@ -4,30 +4,33 @@ import scala.actors.Actor
 import org.slf4s.Logging
 
 object ProcessActor extends Actor with Logging {
-  val pubsub: PubSub = RedisPubSub
-
-  override def start = {
-    pubsub.startDispatch
-    super.start
-  }
+  val storage: Storage = RedisStorage
+  private val maxSupportedQosLevel: Byte = MessageQoSLevel.AT_LEAST_ONCE
 
   def act() {
     loop {
       react {
         case (client: ChannelActor, message: MQTTMessage) =>
           try {
-            process(client, message) match {
-              case Some(msg: MQTTMessage) =>
-                log.debug("ProcessActor send:" + msg);
+            val m = process(client, message)
+            log.debug("ProcessActor processed:" + m + ", mClientId=" + client.mClientId);
+            m match {
+              case Some(msg: MQTTConnAckMessage) =>
                 client ! msg
+                if (msg.mReturnCode != MessageConnectAckCode.ACCEPTED) {
+                  client ! ChannelActor.Stop
+                }
+              case Some(msg: MQTTDisconnectMessage) => client ! ChannelActor.Stop
+              case Some(msg: MQTTMessage) => client ! msg
               case _ =>
             }
           } catch {
-            case ex: UnSupportedRequestMessageException => client.disconnect
+            case ex: UnSupportedRequestMessageException => client ! ChannelActor.Stop
             case _: Throwable =>
           }
+        //will message
         case message: MQTTPublishMessage =>
-          pubsub.publish(message.mTopicName, message.mPayload.array)
+          PubSubActor !(PubSubActor.Publish, message.mTopicName, message.mPayload.array)
         case _ =>
       }
     }
@@ -35,54 +38,81 @@ object ProcessActor extends Actor with Logging {
 
   def process(client: ChannelActor, m: MQTTMessage): Option[MQTTMessage] = {
     log.debug("process " + m);
+    m match {
+      case message: MQTTSubscribeMessage =>
+        PubSubActor !(PubSubActor.Subscribe, client.mClientId, message.mSubscriptions.map(_._1))
+      case message: MQTTUnSubscribeMessage =>
+        PubSubActor !(PubSubActor.UnSubscribe, client.mClientId, message.mTopicNames)
+      case message: MQTTPublishMessage =>
+        PubSubActor !(PubSubActor.Publish, message.mTopicName, message)
+      case _ =>
+    }
+    processResp(client, m)
+  }
 
+  def processResp(client: ChannelActor, m: MQTTMessage): Option[MQTTMessage] = {
     m match {
       case message: MQTTConnMessage =>
-        val header = new MessageHeader(MessageType.CONNACK, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-        if (message.mProtocolName != "MQIsdp") {
-          Some(new MQTTConnAckMessage(header, MessageConnectAckCode.UNACCEPTABLE_PROTOCOL_VERSION))
-        } else if (message.mProtocolVersion != 3) {
-          Some(new MQTTConnAckMessage(header, MessageConnectAckCode.UNACCEPTABLE_PROTOCOL_VERSION))
-        } else if (message.mClientId.size > 22) {
-          Some(new MQTTConnAckMessage(header, MessageConnectAckCode.IDENTIFIER_REJECTED))
-        } else {
+        val returnCode = handle(message)
+        if (returnCode == MessageConnectAckCode.ACCEPTED) {
+          //TODO check duplicate clientId
           client.fill(message)
-          Server.clientIdMapper.getOrElseUpdate(message.mClientId, client)
-          Some(new MQTTConnAckMessage(header, MessageConnectAckCode.ACCEPTED))
+          dispatchInFlightMessages(client)
         }
+        Some(new MQTTConnAckMessage(returnCode))
 
       case message: MQTTSubscribeMessage =>
-        pubsub.subscribe(client.mClientId, message.mSubscriptions.map(_._1))
-        val header = new MessageHeader(MessageType.SUBACK, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-        Some(new MQTTSubAckMessage(header, message.mMessageId, List(MessageQoSLevel.AT_MOST_ONCE)))
+        Some(new MQTTSubAckMessage(message.mMessageId, message.mSubscriptions.map(
+          s => if (s._2 > maxSupportedQosLevel) maxSupportedQosLevel else s._2)
+        ))
 
       case message: MQTTUnSubscribeMessage =>
-        pubsub.unSubscribe(client.mClientId, message.mTopicNames)
-        val header = new MessageHeader(MessageType.UNSUBACK, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-        Some(new MQTTSubAckMessage(header, message.mMessageId, List(MessageQoSLevel.AT_MOST_ONCE)))
+        Some(new MQTTUnSubAckMessage(message.mMessageId))
 
       case message: MQTTPublishMessage =>
-        pubsub.publish(message.mTopicName, message.mPayload.array)
         message.header.mQoSLevel match {
           case MessageQoSLevel.AT_MOST_ONCE =>
             None
           case MessageQoSLevel.AT_LEAST_ONCE =>
-            val header = new MessageHeader(MessageType.PUBACK, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-            Some(new MQTTPubAckMessage(header, message.mMessageId))
+            Some(new MQTTPubAckMessage(message.mMessageId))
           case MessageQoSLevel.EXACTLY_ONCE =>
-            val header = new MessageHeader(MessageType.PUBREC, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-            Some(new MQTTPubRecMessage(header, message.mMessageId))
+            Some(new MQTTPubRecMessage(message.mMessageId))
         }
 
       case message: MQTTPingReqMessage =>
-        val header = new MessageHeader(MessageType.PINGRESP, false, MessageQoSLevel.AT_MOST_ONCE, false, 0)
-        Some(new MQTTPingRespMessage(header))
+        Some(new MQTTPingRespMessage)
 
       case message: MQTTDisconnectMessage =>
-        None
+        Some(message)
+
       case _ =>
         throw new UnSupportedRequestMessageException
     }
   }
 
+  private def handle(message: MQTTConnMessage): Byte = {
+    if (message.mProtocolName != "MQIsdp") {
+      MessageConnectAckCode.UNACCEPTABLE_PROTOCOL_VERSION
+    } else if (message.mProtocolVersion != 3) {
+      MessageConnectAckCode.UNACCEPTABLE_PROTOCOL_VERSION
+    } else if (message.mClientId.size > 23) {
+      MessageConnectAckCode.IDENTIFIER_REJECTED
+    } else {
+      MessageConnectAckCode.ACCEPTED
+    }
+  }
+
+  private def dispatchInFlightMessages(client: ChannelActor) {
+    var messageId = storage.getFromInbox(client.mClientId)
+    println("inFlight:" + messageId)
+    while (messageId != null) {
+      val message0 = storage.load(messageId)
+      println("inFlight:" + new String(message0.mPayload, "UTF-8"))
+      val message = new MQTTPublishMessage(false, MessageQoSLevel.AT_MOST_ONCE, false, message0.mTopicName, 1, message0.mPayload)
+      client ! message
+
+      messageId = storage.getFromInbox(client.mClientId)
+      println("inFlight:" + messageId)
+    }
+  }
 }
