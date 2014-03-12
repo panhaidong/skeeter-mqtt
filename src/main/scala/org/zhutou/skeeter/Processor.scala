@@ -34,10 +34,14 @@ trait Processor extends Logging {
         val resp = new MQTTPubRecMessage(message.mMessageId)
         writeAndFlush(resp)
     }
-
-    //TODO retainMessage
-    
     val messageId = storage.save(message)
+    if (message.mRetainFlag) {
+      if (message.mPayload.size == 0)
+        storage.setTopicRetainMessage(message.mTopicName, "")
+      else
+        storage.setTopicRetainMessage(message.mTopicName, messageId)
+    }
+
     PubSubActor !(PubSubActor.Publish, message.mTopicName, messageId)
   }
 
@@ -56,7 +60,20 @@ trait Processor extends Logging {
     writeAndFlush(msg)
 
     storage.subscribe(mClientId, message.mSubscriptions)
+    handleRetainMessage(message)
     PubSubActor !(PubSubActor.Subscribe, mClientId, message.mSubscriptions.map(_.mTopicName))
+  }
+
+
+  private def handleRetainMessage(message: MQTTSubscribeMessage) {
+    val lastMessageIds = storage.getTopicRetainMessages(message.mSubscriptions.map(_.mTopicName))
+    for ((subscription: MessageSubscription, messageId: String) <- message.mSubscriptions.zip(lastMessageIds)) {
+      if (messageId != null) {
+        val message0 = storage.load(messageId)
+        val message = MQTTPublishMessage(false, math.min(subscription.mQoSLevel, message0.mQoSLevel).toByte, true, subscription.mTopicName, 1, message0.mPayload)
+        writeAndFlush(message)
+      }
+    }
   }
 
   private def processConnect(message: MQTTConnMessage) {
@@ -71,7 +88,7 @@ trait Processor extends Logging {
       fill(message)
       handleCleanSession()
       dispatchInFlightMessages()
-      //TODO retainMessage
+
     } else {
       disconnect()
     }

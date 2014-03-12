@@ -100,7 +100,10 @@ object PubSubActor extends Actor with Logging {
     loop {
       react {
         case (Publish, topicName: String, messageId: String) => pubsub.publish(topicName, messageId)
-        case (Subscribe, clientId: String, topicNames: List[String]) => pubsub.subscribe(clientId, topicNames)
+        case (Subscribe, clientId: String, topicNames: List[String]) =>
+          pubsub.subscribe(clientId, topicNames)
+
+
         case (UnSubscribe, clientId: String, topicNames: List[String]) => pubsub.unSubscribe(clientId, topicNames)
         case (Dispatch, topicName: String, messageId: String) =>
           val message0 = storage.load(messageId)

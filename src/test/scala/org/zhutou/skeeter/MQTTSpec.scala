@@ -146,4 +146,46 @@ class MQTTSpec extends FunSpec with Logging {
     client3.disconnect()
   }
 
+  it("should passed RetainMessage") {
+    val client5 = createClient("client5")
+    client5.connect(conOpt)
+    client5.publish("retain_topic", "RetainMessage".getBytes("UTF-8"), 1, true)
+    client5.disconnect()
+
+    val client6 = createClient("client6")
+    val receiver = self
+    client6.setCallback(new MqttCallback {
+      override def connectionLost(cause: Throwable): Unit = {}
+
+      override def messageArrived(topic: String, message: MqttMessage): Unit = {
+        log.debug("QoS1" + topic)
+        receiver !(topic, message)
+      }
+
+      override def deliveryComplete(token: IMqttDeliveryToken): Unit = {}
+    })
+
+    client6.connect(conOpt)
+    client6.subscribe("retain_topic")
+
+    receiveWithin(2000) {
+      case (topic: String, message: MqttMessage) =>
+        assertResult("retain_topic", "should receive for topic") {
+          topic
+        }
+
+        assertResult("RetainMessage", "should receive") {
+          val s = new String(message.getPayload, "UTF-8")
+          s
+        }
+      case TIMEOUT => assertResult(true) {
+        false
+      }
+    }
+
+    client6.disconnect()
+
+
+  }
+
 }

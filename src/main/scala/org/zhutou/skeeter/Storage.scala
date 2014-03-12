@@ -24,6 +24,10 @@ abstract class Storage {
   def getFromInbox(clientId: String): String
 
   def flushInbox(clientId: String)
+
+  def setTopicRetainMessage(topicName: String, messageId: String)
+
+  def getTopicRetainMessages(topicNames: List[String]): List[String]
 }
 
 object RedisStorage extends Storage {
@@ -146,6 +150,25 @@ object RedisStorage extends Storage {
       jedis =>
         jedis.del(getClientInFlightMessagesKey(clientId))
     }
+  }
+
+  override def setTopicRetainMessage(topicName: String, messageId: String) = {
+    withJedis {
+      jedis =>
+        if (messageId.size > 0)
+          jedis.set(topicName, messageId)
+        else
+          jedis.del(topicName)
+    }
+  }
+
+  override def getTopicRetainMessages(topicNames: List[String]): List[String] = {
+    var lastMessageIds: List[String] = Nil
+    withJedis {
+      jedis =>
+        lastMessageIds = jedis.mget(topicNames: _*).toList
+    }
+    lastMessageIds
   }
 }
 
