@@ -1,6 +1,5 @@
 package org.zhutou.skeeter
 
-import java.nio.ByteBuffer
 
 object MessageType {
   val CONNECT: Byte = 1
@@ -35,6 +34,8 @@ object MessageConnectAckCode {
 }
 
 case class MessageHeader(mType: Byte, mDupFlag: Boolean, mQoSLevel: Byte, mRetainFlag: Boolean, mRemainingLength: Int)
+
+case class MessageSubscription(mClientId: String, mTopicName: String, mQoSLevel: Byte)
 
 abstract class MQTTMessage extends Serializable {
   val header: MessageHeader
@@ -73,7 +74,7 @@ case class MQTTPubCompMessage(mMessageId: Int) extends MQTTMessage {
 }
 
 case class MQTTSubscribeMessage(mDupFlag: Boolean, mMessageId: Int,
-                                mSubscriptions: List[(String, Byte)]) extends MQTTMessage {
+                                mSubscriptions: List[MessageSubscription]) extends MQTTMessage {
   val header = new MessageHeader(MessageType.SUBSCRIBE, mDupFlag, MessageQoSLevel.AT_LEAST_ONCE, false, 0)
 }
 

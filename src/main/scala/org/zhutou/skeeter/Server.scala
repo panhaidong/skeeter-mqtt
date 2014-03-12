@@ -31,7 +31,6 @@ object Server extends Logging with App {
   }
 
   def runServer {
-    ProcessActor.start
     PubSubActor.start
 
     val bossGroup: EventLoopGroup = new NioEventLoopGroup(5, new DefaultThreadFactory("BOSS"))
@@ -46,8 +45,8 @@ object Server extends Logging with App {
           ch.pipeline.addLast(
             new ChannelInboundHandlerAdapter() {
               override def channelRead(ctx: ChannelHandlerContext, msg: Object) {
-                log.debug("channelRead..." + ctx + ", msg=" + msg)
                 var channel = ctx.attr(ClientId).get()
+                log.debug("channelRead...channel=" + channel)
                 if (channel == null)
                   channel = newActor(ctx)
                 channel ! msg.asInstanceOf[ByteBuf]
@@ -55,12 +54,11 @@ object Server extends Logging with App {
               }
 
               override def channelInactive(ctx: ChannelHandlerContext) = {
-                var channel = ctx.attr(ClientId).get()
+                val channel = ctx.attr(ClientId).get()
                 if (channel == null)
                   ctx.close()
                 else
-                  channel.disconnect
-
+                  channel.disconnect()
               }
 
               override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {

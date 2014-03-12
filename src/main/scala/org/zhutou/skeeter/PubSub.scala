@@ -9,39 +9,35 @@ abstract class PubSub {
 
   def unSubscribe(clientId: String, topicNames: List[String])
 
-  def unSubscribeAll(clientId: String)
+  //def unSubscribeAll(clientId: String)
 
-  def publish(message: MQTTPublishMessage)
+  def publish(topicName: String, messageId: String)
 
   def startDispatch()
 }
 
 object RedisPubSub extends PubSub with Logging {
   val jedis = new Jedis(Config.redisAddress, Config.redisPort)
-  val storage: Storage = RedisStorage
+  //val storage: Storage = RedisStorage
 
   private def getRedisTopicKey(topicName: String) = (Config.redisKeyPrefix + ":ptopic:" + topicName)
 
-  override def publish(message: MQTTPublishMessage) = {
+  override def publish(topicName: String, messageId: String) = {
     log.debug("publish")
-    val id = storage.save(message)
-    jedis.publish(getRedisTopicKey(message.mTopicName), id)
+    jedis.publish(getRedisTopicKey(topicName), messageId)
   }
 
-  override def unSubscribeAll(clientId: String) = {
-    val topicNames = storage.getSubscribedTopics(clientId)
-    storage.unSubscribe(clientId)
-    lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
-  }
+  //override def unSubscribeAll(clientId: String) = {
+  //val topicNames = storage.getSubscribedTopics(clientId)
+  //lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
+  //}
 
   override def unSubscribe(clientId: String, topicNames: List[String]) = {
-    storage.unSubscribe(clientId, topicNames)
-    lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
+    //lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
   }
 
   override def subscribe(clientId: String, topicNames: List[String]) = {
     log.debug("subscribe")
-    storage.subscribe(clientId, topicNames)
     lsnr.subscribe(topicNames.map(getRedisTopicKey(_)): _*)
   }
 
@@ -98,29 +94,27 @@ object PubSubActor extends Actor with Logging {
 
   case object UnSubscribe
 
-  case object UnSubscribeAll
-
   case object Dispatch
 
   def act() {
     loop {
       react {
-        case (Publish, topicName: String, message: MQTTPublishMessage) => pubsub.publish(message)
+        case (Publish, topicName: String, messageId: String) => pubsub.publish(topicName, messageId)
         case (Subscribe, clientId: String, topicNames: List[String]) => pubsub.subscribe(clientId, topicNames)
         case (UnSubscribe, clientId: String, topicNames: List[String]) => pubsub.unSubscribe(clientId, topicNames)
-        case (UnSubscribeAll, clientId: String) => pubsub.unSubscribeAll(clientId)
         case (Dispatch, topicName: String, messageId: String) =>
           val message0 = storage.load(messageId)
-          val message = new MQTTPublishMessage(false, MessageQoSLevel.AT_MOST_ONCE, false, topicName, 1, message0.mPayload)
           log.debug("Dispatch subscribers=" + storage.getSubscribers(topicName))
-          for (clientId <- storage.getSubscribers(topicName))
-            Container.activeChannels.get(clientId) match {
+          for (s <- storage.getSubscribers(topicName)) {
+            val message = new MQTTPublishMessage(false, math.min(s.mQoSLevel, message0.mQoSLevel).toByte, false, topicName, 1, message0.mPayload)
+            Container.activeChannels.get(s.mClientId) match {
               case Some(client) => client ! message
-              case None => if (message0.mQoSLevel > MessageQoSLevel.AT_MOST_ONCE) {
-                log.error("inflight message:" + clientId + "," + messageId)
-                storage.addToInbox(clientId, messageId)
+              case None => if (message.mQoSLevel > MessageQoSLevel.AT_MOST_ONCE) {
+                storage.addToInbox(s.mClientId, messageId)
+                log.error("inflight message:" + s.mClientId + "," + messageId)
               }
             }
+          }
         case _ => log.error("unmatch message")
       }
     }

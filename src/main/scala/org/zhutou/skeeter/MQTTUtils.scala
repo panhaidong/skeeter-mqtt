@@ -86,7 +86,7 @@ object MQTTUtils extends Logging {
   }
 
 
-  def decode(in: ByteBuf): MQTTMessage = {
+  def decode(in: ByteBuf, clientId: String): MQTTMessage = {
     if (!checkHeaderAvailability(in)) {
       log.debug("readableBytes=" + in.readableBytes())
       return null
@@ -113,14 +113,14 @@ object MQTTUtils extends Logging {
         val mUserName = if (mUserNameFlag) MQTTUtils.readString(bytes) else ""
         val mPassword = if (mPasswordFlag) MQTTUtils.readString(bytes) else ""
 
-        return new MQTTConnMessage(mProtocolName, mProtocolVersion, mCleanSessionFlag, mWillFlag,
+        MQTTConnMessage(mProtocolName, mProtocolVersion, mCleanSessionFlag, mWillFlag,
           mWillQosLevel, mWillRetainFlag, mPasswordFlag, mUserNameFlag, mKeepAliveTimer, mClientId, mWillTopic,
           mWillMessage, mUserName, mPassword)
 
       case MessageType.CONNACK =>
         bytes.skipBytes(1)
         val mReturnCode = bytes.readByte()
-        return new MQTTConnAckMessage(mReturnCode)
+        MQTTConnAckMessage(mReturnCode)
 
       case MessageType.PUBLISH =>
         val mTopicName = MQTTUtils.readString(bytes)
@@ -128,35 +128,35 @@ object MQTTUtils extends Logging {
           || header.mQoSLevel == MessageQoSLevel.EXACTLY_ONCE) MQTTUtils.readInt(bytes)
         else 0
         val mPayload = bytes.readBytes(bytes.readableBytes())
-        return new MQTTPublishMessage(header.mDupFlag, header.mQoSLevel, header.mRetainFlag, mTopicName, mMessageId, mPayload.array)
+        MQTTPublishMessage(header.mDupFlag, header.mQoSLevel, header.mRetainFlag, mTopicName, mMessageId, mPayload.array)
 
       case MessageType.PUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubAckMessage(mMessageId)
+        MQTTPubAckMessage(mMessageId)
 
       case MessageType.PUBREC =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubRecMessage(mMessageId)
+        MQTTPubRecMessage(mMessageId)
 
       case MessageType.PUBREL =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubRelMessage(mMessageId)
+        MQTTPubRelMessage(mMessageId)
 
       case MessageType.PUBCOMP =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTPubCompMessage(mMessageId)
+        MQTTPubCompMessage(mMessageId)
 
       case MessageType.SUBSCRIBE =>
         val mMessageId = MQTTUtils.readInt(bytes)
 
-        var subscriptions = List[(String, Byte)]()
+        var subscriptions = List[MessageSubscription]()
         while (bytes.readableBytes() > 0) {
           val topicName = MQTTUtils.readString(bytes)
           val qoSLevel = MQTTUtils.readByte(bytes)
-          subscriptions = (topicName, qoSLevel) :: subscriptions
+          subscriptions = MessageSubscription(clientId, topicName, qoSLevel) :: subscriptions
         }
         val mSubscriptions = subscriptions.reverse
-        return new MQTTSubscribeMessage(header.mDupFlag, mMessageId, mSubscriptions)
+        MQTTSubscribeMessage(header.mDupFlag, mMessageId, mSubscriptions)
 
       case MessageType.SUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
@@ -168,7 +168,7 @@ object MQTTUtils extends Logging {
         }
         mQosLevels = mQosLevels.reverse
 
-        return new MQTTSubAckMessage(mMessageId, mQosLevels)
+        MQTTSubAckMessage(mMessageId, mQosLevels)
 
       case MessageType.UNSUBSCRIBE =>
         val mMessageId = MQTTUtils.readInt(bytes)
@@ -180,20 +180,20 @@ object MQTTUtils extends Logging {
         }
         mTopicNames = mTopicNames.reverse
 
-        return new MQTTUnSubscribeMessage(header.mDupFlag, mMessageId, mTopicNames)
+        MQTTUnSubscribeMessage(header.mDupFlag, mMessageId, mTopicNames)
 
       case MessageType.UNSUBACK =>
         val mMessageId = MQTTUtils.readInt(bytes)
-        return new MQTTUnSubAckMessage(mMessageId)
+        MQTTUnSubAckMessage(mMessageId)
 
       case MessageType.PINGREQ =>
-        return new MQTTPingReqMessage
+        MQTTPingReqMessage()
 
       case MessageType.PINGRESP =>
-        return new MQTTPingRespMessage
+        MQTTPingRespMessage()
 
       case MessageType.DISCONNECT =>
-        return new MQTTDisconnectMessage
+        MQTTDisconnectMessage()
 
       case _ =>
         log.error("Wrong message")
@@ -237,9 +237,9 @@ object MQTTUtils extends Logging {
         MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
       case m: MQTTSubscribeMessage =>
         MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
-        for ((topicName, qoSLevel) <- m.mSubscriptions) {
-          MQTTUtils.writeString(variableHeaderBuff, topicName)
-          variableHeaderBuff.writeByte(qoSLevel)
+        for (s <- m.mSubscriptions) {
+          MQTTUtils.writeString(variableHeaderBuff, s.mTopicName)
+          variableHeaderBuff.writeByte(s.mQoSLevel)
         }
       case m: MQTTSubAckMessage =>
         MQTTUtils.writeInt(variableHeaderBuff, m.mMessageId)
