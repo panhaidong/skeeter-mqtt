@@ -6,13 +6,10 @@ import io.netty.channel.ChannelHandlerContext
 import org.slf4s.Logging
 
 object MQTTUtils extends Logging {
-  def readByte(in: ByteBuf): Byte = {
-    return in.readByte()
-  }
+  def readByte(in: ByteBuf): Byte = in.readByte()
 
-  def readInt(in: ByteBuf): Int = {
-    return in.readUnsignedShort()
-  }
+  def readInt(in: ByteBuf): Int =  in.readUnsignedShort()
+
 
   def readString(in: ByteBuf): String = {
     if (in.readableBytes < 2) {
@@ -27,9 +24,7 @@ object MQTTUtils extends Logging {
     return new String(strRaw, "UTF-8")
   }
 
-  def writeInt(out: ByteBuf, int: Int): ByteBuf = {
-    out.writeShort(int)
-  }
+  def writeInt(out: ByteBuf, int: Int): ByteBuf = out.writeShort(int)
 
   def writeString(out: ByteBuf, str: String) = {
     var raw: Array[Byte] = null
@@ -82,7 +77,7 @@ object MQTTUtils extends Logging {
     val mQoSLevel = ((b1 & 0x0006) >> 1).asInstanceOf[Byte]
     val mRetainFlag = (b1 & 0x0001) == 1
     val mRemainingLength = MQTTUtils.decodeRemainingLength(in)
-    return MessageHeader(mType, mDupFlag, mQoSLevel, mRetainFlag, mRemainingLength)
+    MessageHeader(mType, mDupFlag, mQoSLevel, mRetainFlag, mRemainingLength)
   }
 
 
@@ -262,7 +257,7 @@ object MQTTUtils extends Logging {
     buff.writeByte(b0)
     buff.writeBytes(MQTTUtils.encodeRemainingLength(variableHeaderSize))
     buff.writeBytes(variableHeaderBuff)
-    return buff
+    buff
   }
 
   private def checkHeaderAvailability(in: ByteBuf): Boolean = {
@@ -271,7 +266,7 @@ object MQTTUtils extends Logging {
     }
     in.skipBytes(1)
     val remainingLength: Int = decodeRemainingLength(in)
-    in.resetReaderIndex
+    in.resetReaderIndex()
 
     if (remainingLength == -1 || in.readableBytes < remainingLength) {
       return false

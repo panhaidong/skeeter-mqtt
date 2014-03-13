@@ -44,6 +44,8 @@ object RedisStorage extends Storage {
 
   private def getPayloadKey(id: String) = (Config.redisKeyPrefix + ":payload:" + id).getBytes("UTF-8")
 
+  private def getTopicRetainMessageKey(topicName: String) = Config.redisKeyPrefix + ":retain:" + topicName
+
   private def withJedis(func: (Jedis) => Unit) {
     val jedis = jedisPool.getResource
     try {
@@ -156,9 +158,9 @@ object RedisStorage extends Storage {
     withJedis {
       jedis =>
         if (messageId.size > 0)
-          jedis.set(topicName, messageId)
+          jedis.set(getTopicRetainMessageKey(topicName), messageId)
         else
-          jedis.del(topicName)
+          jedis.del(getTopicRetainMessageKey(topicName))
     }
   }
 
@@ -166,7 +168,7 @@ object RedisStorage extends Storage {
     var lastMessageIds: List[String] = Nil
     withJedis {
       jedis =>
-        lastMessageIds = jedis.mget(topicNames: _*).toList
+        lastMessageIds = jedis.mget(topicNames.map(getTopicRetainMessageKey): _*).toList
     }
     lastMessageIds
   }

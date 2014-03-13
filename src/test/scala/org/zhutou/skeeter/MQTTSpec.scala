@@ -81,7 +81,11 @@ class MQTTSpec extends FunSpec with Logging {
     val conOpt2 = new MqttConnectOptions()
     conOpt2.setWill("will_topic", "will_message".getBytes("UTF-8"), 0, false)
     client2.connect(conOpt2)
-    client2.disconnect()
+
+    val client3 = createClient("client2")
+    client3.connect(conOpt2)
+    client3.disconnect()
+
 
     receiveWithin(1000) {
       case (topic: String, message: MqttMessage) =>
@@ -187,5 +191,4 @@ class MQTTSpec extends FunSpec with Logging {
 
 
   }
-
 }

@@ -14,12 +14,14 @@ class ChannelActor(val ctx: ChannelHandlerContext) extends Actor with Logging wi
   var mKeepAliveTimer: Int = _
   var mWillTopic: String = _
   var mWillMessage: String = _
+  var mLastActiveTimeMillis: Long = _
 
   def act() {
     loop {
       react {
         //read
         case in: ByteBuf =>
+          mLastActiveTimeMillis = System.currentTimeMillis
           val message = decode(in)
           process(message)
         //write

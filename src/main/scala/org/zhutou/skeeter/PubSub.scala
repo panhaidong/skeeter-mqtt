@@ -9,8 +9,6 @@ abstract class PubSub {
 
   def unSubscribe(clientId: String, topicNames: List[String])
 
-  //def unSubscribeAll(clientId: String)
-
   def publish(topicName: String, messageId: String)
 
   def startDispatch()
@@ -18,7 +16,6 @@ abstract class PubSub {
 
 object RedisPubSub extends PubSub with Logging {
   val jedis = new Jedis(Config.redisAddress, Config.redisPort)
-  //val storage: Storage = RedisStorage
 
   private def getRedisTopicKey(topicName: String) = (Config.redisKeyPrefix + ":ptopic:" + topicName)
 
@@ -26,11 +23,6 @@ object RedisPubSub extends PubSub with Logging {
     log.debug("publish")
     jedis.publish(getRedisTopicKey(topicName), messageId)
   }
-
-  //override def unSubscribeAll(clientId: String) = {
-  //val topicNames = storage.getSubscribedTopics(clientId)
-  //lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
-  //}
 
   override def unSubscribe(clientId: String, topicNames: List[String]) = {
     //lsnr.unsubscribe(topicNames.filter(storage.getSubscribers(_).size == 0).map(getRedisTopicKey(_)): _*)
@@ -100,16 +92,16 @@ object PubSubActor extends Actor with Logging {
     loop {
       react {
         case (Publish, topicName: String, messageId: String) => pubsub.publish(topicName, messageId)
-        case (Subscribe, clientId: String, topicNames: List[String]) =>
-          pubsub.subscribe(clientId, topicNames)
 
+        case (Subscribe, clientId: String, topicNames: List[String]) => pubsub.subscribe(clientId, topicNames)
 
         case (UnSubscribe, clientId: String, topicNames: List[String]) => pubsub.unSubscribe(clientId, topicNames)
+
         case (Dispatch, topicName: String, messageId: String) =>
           val message0 = storage.load(messageId)
           log.debug("Dispatch subscribers=" + storage.getSubscribers(topicName))
           for (s <- storage.getSubscribers(topicName)) {
-            val message = new MQTTPublishMessage(false, math.min(s.mQoSLevel, message0.mQoSLevel).toByte, false, topicName, 1, message0.mPayload)
+            val message = new MQTTPublishMessage(false, math.min(s.mQoSLevel, message0.mQoSLevel).toByte, false, topicName, messageId.toInt, message0.mPayload)
             Container.activeChannels.get(s.mClientId) match {
               case Some(client) => client ! message
               case None => if (message.mQoSLevel > MessageQoSLevel.AT_MOST_ONCE) {

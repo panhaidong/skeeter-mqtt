@@ -16,7 +16,7 @@ trait Processor extends Logging {
       case message: MQTTPublishMessage => processPublish(message)
       case message: MQTTPingReqMessage => processPingReq()
       case message: MQTTDisconnectMessage => processDisconnect()
-      case _ => disconnect()
+      case _ => force_disconnect()
     }
   }
 
@@ -70,7 +70,7 @@ trait Processor extends Logging {
     for ((subscription: MessageSubscription, messageId: String) <- message.mSubscriptions.zip(lastMessageIds)) {
       if (messageId != null) {
         val message0 = storage.load(messageId)
-        val message = MQTTPublishMessage(false, math.min(subscription.mQoSLevel, message0.mQoSLevel).toByte, true, subscription.mTopicName, 1, message0.mPayload)
+        val message = MQTTPublishMessage(false, math.min(subscription.mQoSLevel, message0.mQoSLevel).toByte, true, subscription.mTopicName, messageId.toInt, message0.mPayload)
         writeAndFlush(message)
       }
     }
@@ -82,7 +82,7 @@ trait Processor extends Logging {
     if (returnCode == MessageConnectAckCode.ACCEPTED) {
 
       Container.activeChannels.get(message.mClientId) match {
-        case Some(anotherClient) => anotherClient.disconnect()
+        case Some(anotherClient) => anotherClient.force_disconnect()
         case None =>
       }
       fill(message)
@@ -90,7 +90,7 @@ trait Processor extends Logging {
       dispatchInFlightMessages()
 
     } else {
-      disconnect()
+      force_disconnect()
     }
   }
 
@@ -106,12 +106,16 @@ trait Processor extends Logging {
     }
   }
 
-  def disconnect() = {
+  def force_disconnect() = disconnect(true)
+
+  private def disconnect():Unit = disconnect(false)
+
+  private def disconnect(forced: Boolean) = {
     log.debug("disconnect:" + mClientId);
 
     Container.activeChannels.remove(mClientId) match {
       case Some(c) =>
-        if (mWillFlag) {
+        if (forced && mWillFlag) {
           sendWillMessage()
         }
         handleCleanSession()
@@ -133,7 +137,7 @@ trait Processor extends Logging {
     var messageId = storage.getFromInbox(mClientId)
     while (messageId != null) {
       val message0 = storage.load(messageId)
-      val message = new MQTTPublishMessage(false, MessageQoSLevel.AT_MOST_ONCE, false, message0.mTopicName, 1, message0.mPayload)
+      val message = new MQTTPublishMessage(false, MessageQoSLevel.AT_MOST_ONCE, false, message0.mTopicName, messageId.toInt, message0.mPayload)
       writeAndFlush(message)
       messageId = storage.getFromInbox(mClientId)
     }

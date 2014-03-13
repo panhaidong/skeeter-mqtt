@@ -54,16 +54,14 @@ object Server extends Logging with App {
               }
 
               override def channelInactive(ctx: ChannelHandlerContext) = {
-                val channel = ctx.attr(ClientId).get()
-                if (channel == null)
-                  ctx.close()
-                else
-                  channel.disconnect()
+
               }
 
               override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
-                cause.printStackTrace
-                ctx.close
+                ctx.attr(ClientId).get() match {
+                  case null => ctx.close()
+                  case channel: ChannelActor => channel.force_disconnect()
+                }
               }
             }
           )
