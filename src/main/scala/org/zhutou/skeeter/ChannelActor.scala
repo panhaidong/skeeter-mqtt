@@ -1,7 +1,7 @@
 package org.zhutou.skeeter
 
 import io.netty.channel.ChannelHandlerContext
-import scala.actors.Actor
+import akka.actor.Actor
 import io.netty.buffer.ByteBuf
 import org.slf4s.Logging
 
@@ -16,18 +16,14 @@ class ChannelActor(val ctx: ChannelHandlerContext) extends Actor with Logging wi
   var mWillMessage: String = _
   var mLastActiveTimeMillis: Long = _
 
-  def act() {
-    loop {
-      react {
-        //read
-        case in: ByteBuf =>
-          mLastActiveTimeMillis = System.currentTimeMillis
-          val message = decode(in)
-          process(message)
-        //write
-        case message: MQTTMessage => writeAndFlush(message)
-      }
-    }
+  def receive = {
+    //read
+    case in: ByteBuf =>
+      mLastActiveTimeMillis = System.currentTimeMillis
+      val message = decode(in)
+      process(message)
+    //write
+    case message: MQTTMessage => writeAndFlush(message)
   }
 
   def decode(in: ByteBuf): MQTTMessage = {
@@ -51,7 +47,7 @@ class ChannelActor(val ctx: ChannelHandlerContext) extends Actor with Logging wi
     mKeepAliveTimer = message.mKeepAliveTimer
     mWillTopic = message.mWillTopic
     mWillMessage = message.mWillMessage
-    ctx.attr(Server.ClientId).set(this)
-    Container.activeChannels.getOrElseUpdate(message.mClientId, this)
+    ctx.attr(Server.ClientId).set(self)
+    Container.activeChannels.getOrElseUpdate(message.mClientId, self)
   }
 }

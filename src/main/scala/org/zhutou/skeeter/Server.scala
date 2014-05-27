@@ -11,27 +11,25 @@ import io.netty.util.concurrent.DefaultThreadFactory
 import io.netty.buffer.ByteBuf
 import org.slf4s.Logging
 import io.netty.util.AttributeKey
+import akka.actor.{ActorRef, ActorDSL, ActorSystem}
 
 object Container {
-  val activeChannels = Map[String, ChannelActor]()
+  val activeChannels = Map[String, ActorRef]()
 }
 
 object Server extends Logging with App {
 
 
   log.info("server starting...")
-  runServer
+  val system = ActorSystem("skeeter")
+  val pubSubActor = ActorDSL.actor(system)(new PubSubActor)
+  runServer()
   log.info("server stopped.")
-  val ClientId: AttributeKey[ChannelActor] = AttributeKey.valueOf("SKEETER_CHANNEL_ACTOR")
+  val ClientId: AttributeKey[ActorRef] = AttributeKey.valueOf("SKEETER_CHANNEL_ACTOR")
 
-  private def newActor(ctx: ChannelHandlerContext): ChannelActor = {
-    val client = new ChannelActor(ctx)
-    client.start()
-    client
-  }
+  private def newActor(ctx: ChannelHandlerContext) = ActorDSL.actor(system)(new ChannelActor(ctx))
 
-  def runServer {
-    PubSubActor.start
+  def runServer() {
 
     val bossGroup: EventLoopGroup = new NioEventLoopGroup(5, new DefaultThreadFactory("BOSS"))
     val workerGroup: EventLoopGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("WORKER"))
@@ -60,7 +58,7 @@ object Server extends Logging with App {
               override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
                 ctx.attr(ClientId).get() match {
                   case null => ctx.close()
-                  case channel: ChannelActor => channel.force_disconnect()
+                  case channel: ActorRef => channel ! "quit"
                 }
               }
             }

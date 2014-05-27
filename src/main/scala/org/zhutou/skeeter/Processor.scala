@@ -42,7 +42,7 @@ trait Processor extends Logging {
         storage.setTopicRetainMessage(message.mTopicName, messageId)
     }
 
-    PubSubActor !(PubSubActor.Publish, message.mTopicName, messageId)
+    Server.pubSubActor ! ((PubSubActor.Publish, message.mTopicName, messageId))
   }
 
   private def processUnSubscribe(message: MQTTUnSubscribeMessage) {
@@ -50,7 +50,7 @@ trait Processor extends Logging {
     writeAndFlush(resp)
 
     storage.unSubscribe(mClientId, message.mTopicNames)
-    PubSubActor !(PubSubActor.UnSubscribe, mClientId, message.mTopicNames)
+    Server.pubSubActor !(PubSubActor.UnSubscribe, mClientId, message.mTopicNames)
   }
 
   private def processSubscribe(message: MQTTSubscribeMessage) {
@@ -61,7 +61,7 @@ trait Processor extends Logging {
 
     storage.subscribe(mClientId, message.mSubscriptions)
     handleRetainMessage(message)
-    PubSubActor !(PubSubActor.Subscribe, mClientId, message.mSubscriptions.map(_.mTopicName))
+    Server.pubSubActor !(PubSubActor.Subscribe, mClientId, message.mSubscriptions.map(_.mTopicName))
   }
 
 
@@ -82,7 +82,7 @@ trait Processor extends Logging {
     if (returnCode == MessageConnectAckCode.ACCEPTED) {
 
       Container.activeChannels.get(message.mClientId) match {
-        case Some(anotherClient) => anotherClient.force_disconnect()
+        case Some(anotherClient) => anotherClient ! "quit"
         case None =>
       }
       fill(message)
@@ -124,13 +124,13 @@ trait Processor extends Logging {
     }
 
     client.ctx.close()
-    exit()
+    context.stop(self)
   }
 
   def sendWillMessage() {
     val message = MQTTPublishMessage(false, mWillQosLevel, mWillRetainFlag, mWillTopic, 1, mWillMessage.getBytes("UTF-8"))
     val messageId = storage.save(message)
-    PubSubActor !(PubSubActor.Publish, message.mTopicName, messageId)
+    Server.pubSubActor !(PubSubActor.Publish, message.mTopicName, messageId)
   }
 
   private def dispatchInFlightMessages() {
@@ -147,7 +147,7 @@ trait Processor extends Logging {
     if (mCleanSessionFlag) {
       storage.flushInbox(mClientId)
       val subscribedTopicNames = storage.unSubscribe(mClientId)
-      PubSubActor !(PubSubActor.UnSubscribe, mClientId, subscribedTopicNames)
+      Server.pubSubActor !(PubSubActor.UnSubscribe, mClientId, subscribedTopicNames)
     }
   }
 }

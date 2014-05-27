@@ -1,0 +1,31 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+apply plugin: 'idea'
+apply plugin: 'application'
+
+
+repositories {
+    maven { url 'http://maven.oschina.net/content/groups/public/' }
+    mavenCentral()
+}
+
+dependencies {
+    compile 'org.scala-lang:scala-library:2.11.0'
+    compile 'com.typesafe.akka:akka-actor_2.11:2.3.2'
+    compile 'org.springframework.data:spring-data-redis:1.2.0.RELEASE'
+    compile 'io.netty:netty-common:4.0.15.Final'
+    compile 'io.netty:netty-buffer:4.0.15.Final'
+    compile 'io.netty:netty-handler:4.0.15.Final'
+    compile 'io.netty:netty-transport:4.0.15.Final'
+    compile 'io.netty:netty-codec:4.0.15.Final'
+    compile 'redis.clients:jedis:2.2.1'
+    compile 'org.slf4s:slf4s-api_2.10:1.7.6'
+    compile 'ch.qos.logback:logback-classic:1.1.1'
+    compile 'com.typesafe:config:1.2.0'
+    testCompile 'org.eclipse.paho:mqtt-client:0.4.0'
+    testCompile 'org.scalatest:scalatest_2.10:2.0'
+
+}
+
+mainClassName = "com.test.Main"
+
